@@ -7,6 +7,9 @@ from scipy.interpolate import PchipInterpolator
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
 
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 # 1. TOUJOURS LA CONFIGURATION DE LA PAGE EN PREMIER !
@@ -34,7 +37,7 @@ with col1:
 with col2:
     # Affiche la photo de panneau
     try:
-        st.image("panneau.jpg", use_container_width=True)
+        st.image(str(BASE_DIR / "panneau.jpg"), use_container_width=True)
     except Exception as e:
         pass # Si l'image n'est pas trouvée, l'appli continue sans planter
 
@@ -68,7 +71,7 @@ profil_choisi = None
 # ONGLET 1 : IMPORT ET PARAMÈTRES
 # ==========================================
 with tab_import:
-    st.sidebar.image("logo.jpg", use_container_width=True)
+    st.sidebar.image(str(BASE_DIR / "logo.jpg"), use_container_width=True)
     st.header("Paramètres du projet")
     puissance_crete = st.number_input("Puissance Crête à installer (kWc)", min_value=0.0, value=10.0, step=0.1)
     
@@ -89,7 +92,7 @@ with tab_import:
     # --- CHARGEMENT ET CALCUL DE LA CONSO ---
     try:
         if mode_conso == "Profils types (Fichier CSV)":
-            donnees_conso = pd.read_csv('consommation.csv', sep=";", decimal=",")
+            donnees_conso = pd.read_csv(BASE_DIR / "consommation.csv", sep=";", decimal=",")
             choix_profils = [col for col in donnees_conso.columns if col.lower() != "date" and "unnamed" not in col.lower()]
             
             st.success("Fichier de profils détecté !")
@@ -257,7 +260,7 @@ st.sidebar.subheader("Évolution de la production PV")
 
 # 1. On charge la base de données Excel
 try:
-    df_batteries = pd.read_excel('batteries.xlsx')
+    df_batteries = pd.read_excel(BASE_DIR / "batteries.xlsx")
     # On enlève les lignes vides (comme ton module Fronius sans puissance)
     df_batteries = df_batteries.dropna(subset=['Energie util', 'P charge / décharge'])
 except Exception as e:
