@@ -35,6 +35,7 @@ if "prix_communaute_achat" not in st.session_state:
 if "prix_communaute_vente" not in st.session_state:
     st.session_state["prix_communaute_vente"] = 0.15
 
+
 # --- Design des onglets ---
 st.markdown("""
     <style>
@@ -67,6 +68,13 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+
+
+
+
+
+
 
 
 
@@ -174,6 +182,17 @@ st.markdown("""
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 st.markdown("""
 <style>
 .finance-card {
@@ -250,6 +269,27 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ==========================================
 # --- EN-TÊTE DE L'APPLICATION AVEC IMAGE ---
 # ==========================================
@@ -272,6 +312,11 @@ with col2:
 st.divider() # Ajoute une belle ligne grise de séparation
 
 
+
+
+
+
+
 # ==========================================
 # --- CRÉATION DES ONGLETS ---
 # ==========================================
@@ -287,179 +332,6 @@ tab_import, tab_saisons, tab_mensuel, tab_annuel, tab_budget, tab_finance, tab_c
 
 donnees_conso = None
 profil_choisi = None
-
-# Valeurs par défaut des paramètres sidebar
-augmentation_prod_pct = 0.0
-
-activer_batterie = False
-capa_wh = 0.0
-puiss_w = 0.0
-
-borne_active = False
-puissance_borne_kw = 0.0
-horaires_borne = "18-20"
-jours_charge = "Tous les jours"
-
-
-# ==========================================
-# Fonctions utilitaires
-# ==========================================
-
-
-def parse_horaires_borne(h_str):
-    plages = []
-    try:
-        for bloc in str(h_str).split(";"):
-            debut, fin = map(int, bloc.split("-"))
-            if 0 <= debut <= 23 and 0 <= fin <= 24 and debut < fin:
-                plages.append((debut, fin))
-    except:
-        pass
-    return plages
-
-
-def generer_profil_borne(date_series, puissance_borne_kw, horaires_borne, jours_charge):
-    puissance_borne_wh = puissance_borne_kw * 1000
-    plages = parse_horaires_borne(horaires_borne)
-
-    profil = []
-
-    for dt in pd.to_datetime(date_series):
-        heure = dt.hour
-        jour_semaine = dt.weekday()  # 0=lundi, 6=dimanche
-
-        if jours_charge == "Tous les jours":
-            actif_jour = True
-        elif jours_charge == "Lundi à vendredi":
-            actif_jour = jour_semaine < 5
-        elif jours_charge == "Week-end uniquement":
-            actif_jour = jour_semaine >= 5
-        else:
-            actif_jour = False
-
-        actif_heure = False
-        if actif_jour:
-            for debut, fin in plages:
-                if debut <= heure < fin:
-                    actif_heure = True
-                    break
-
-        if actif_heure:
-            profil.append(puissance_borne_wh)
-        else:
-            profil.append(0.0)
-
-    return np.array(profil)
-
-
-def profil_solaire_journalier(mois, heure):
-    lever_coucher = {
-        1: (8, 16),
-        2: (7, 17),
-        3: (7, 18),
-        4: (6, 20),
-        5: (6, 21),
-        6: (5, 22),
-        7: (5, 22),
-        8: (6, 21),
-        9: (7, 20),
-        10: (7, 18),
-        11: (8, 17),
-        12: (8, 16),
-    }
-
-    lever, coucher = lever_coucher.get(mois, (8, 16))
-
-    if heure < lever or heure > coucher:
-        return 0.0
-
-    duree = coucher - lever
-    if duree <= 0:
-        return 0.0
-
-    x = (heure - lever) / duree
-    val = np.sin(np.pi * x)
-
-    return max(val, 0.0)
-
-
-def generer_production_theorique_horaire(puissance_crete, prod_specifique, coeffs_mensuels):
-    production_annuelle_wh = puissance_crete * prod_specifique * 1000
-
-    date_index = pd.date_range(
-        start="2025-01-01 00:00:00",
-        periods=365 * 24,
-        freq="h"
-    )
-
-    df = pd.DataFrame({"Date&Time": date_index})
-    df["Mois"] = df["Date&Time"].dt.month
-    df["Jour"] = df["Date&Time"].dt.day
-    df["Heure"] = df["Date&Time"].dt.hour
-
-    coeffs_mensuels = np.array(coeffs_mensuels, dtype=float)
-    if coeffs_mensuels.sum() <= 0:
-        coeffs_mensuels = np.array([0.03, 0.05, 0.08, 0.10, 0.12, 0.13,
-                                    0.13, 0.12, 0.09, 0.07, 0.05, 0.03])
-    coeffs_mensuels = coeffs_mensuels / coeffs_mensuels.sum()
-
-    prod_mensuelle_wh = {
-        mois: production_annuelle_wh * coeffs_mensuels[mois - 1]
-        for mois in range(1, 13)
-    }
-
-    production_horaire = []
-
-    for mois in range(1, 13):
-        masque_mois = df["Mois"] == mois
-        df_mois = df.loc[masque_mois].copy()
-
-        profil_brut = df_mois["Heure"].apply(lambda h: profil_solaire_journalier(mois, h)).values
-        somme_profil = profil_brut.sum()
-
-        if somme_profil <= 0:
-            profil_brut = np.zeros(len(df_mois))
-        else:
-            profil_brut = profil_brut / somme_profil * prod_mensuelle_wh[mois]
-
-        production_horaire.extend(profil_brut)
-
-    df["Inverter Output"] = np.array(production_horaire)
-
-    return df[["Date&Time", "Inverter Output"]]
-
-
-def simuler_batterie(production_wh, consommation_wh, capacite_max_wh, puissance_max_w):
-    niveau_actuel = 0.0
-    niveaux, charges, decharges, exports, achats = [], [], [], [], []
-
-    for prod, conso in zip(production_wh, consommation_wh):
-        autoconso_directe = min(prod, conso)
-
-        surplus = prod - autoconso_directe
-        manque = conso - autoconso_directe
-
-        charge, decharge, export, achat = 0.0, 0.0, 0.0, 0.0
-
-        if surplus > 0:
-            charge = min(surplus, puissance_max_w, capacite_max_wh - niveau_actuel)
-            niveau_actuel += charge
-            export = surplus - charge
-
-        elif manque > 0:
-            decharge = min(manque, puissance_max_w, niveau_actuel)
-            niveau_actuel -= decharge
-            achat = manque - decharge
-
-        niveaux.append(niveau_actuel)
-        charges.append(charge)
-        decharges.append(decharge)
-        exports.append(export)
-        achats.append(achat)
-
-    return niveaux, charges, decharges, exports, achats
-
-
 
 
 
@@ -478,10 +350,8 @@ with tab_import:
 
         mode_prod = st.radio(
             "Type de fichier de production :",
-            ["CSV SolarEdge", "Fichier simple Excel", "Production théorique personnalisée"]
+            ["CSV SolarEdge", "Fichier simple Excel"]
         )
-
-        fichier_prod = None
 
         if mode_prod == "CSV SolarEdge":
             fichier_prod = st.file_uploader(
@@ -489,254 +359,116 @@ with tab_import:
                 type=['csv'],
                 key="prod_solaredge"
             )
-
-        elif mode_prod == "Fichier simple Excel":
+        else:
             fichier_prod = st.file_uploader(
                 "Importez le fichier Excel de production",
                 type=['xlsx', 'xls'],
                 key="prod_simple_excel"
             )
-
-        else:
-            st.markdown("### Paramètres de production théorique")
-
-            prod_specifique = st.number_input(
-                "Production spécifique (kWh/kWc/an)",
-                min_value=700.0,
-                max_value=1200.0,
-                value=900.0,
-                step=10.0
-            )
-
-            production_annuelle_theorique = puissance_crete * prod_specifique
-            st.metric(
-                "Production annuelle estimée",
-                f"{production_annuelle_theorique:,.0f} kWh".replace(",", " ")
-            )
-
-            st.markdown("#### Répartition mensuelle personnalisable")
-
-            df_repartition = pd.DataFrame({
-                "Mois": ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin",
-                        "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc"],
-                "Coefficient": [0.03, 0.05, 0.08, 0.10, 0.12, 0.13,
-                                0.13, 0.12, 0.09, 0.07, 0.05, 0.03]
-            })
-
-            df_repartition = st.data_editor(
-                df_repartition,
-                num_rows="fixed",
-                use_container_width=True,
-                key="table_prod_theorique"
-            )
-
-            coeffs_temp = pd.to_numeric(
-                df_repartition["Coefficient"], errors="coerce"
-            ).fillna(0)
-
-            somme_coeff = coeffs_temp.sum()
-
-            if somme_coeff > 0:
-                st.caption(f"Somme actuelle des coefficients : {somme_coeff:.3f} (normalisation automatique)")
-            else:
-                st.warning("La somme des coefficients mensuels est nulle. Des valeurs par défaut seront utilisées.")
-
-            fig_theo, ax_theo = plt.subplots(figsize=(8, 3))
-            ax_theo.bar(df_repartition["Mois"], coeffs_temp.values)
-            ax_theo.set_title("Répartition mensuelle de la production")
-            ax_theo.grid(axis="y", linestyle="--", alpha=0.5)
-            st.pyplot(fig_theo)
         
     with col2:
         st.subheader("Source de Consommation")
-        mode_conso = st.radio(
-            "Choix de la méthode :",
-            ["Profils types (Fichier CSV)", "Calculateur personnalisé (Tableau)"]
-        )
+        mode_conso = st.radio("Choix de la méthode :", 
+                             ["Profils types (Fichier CSV)", "Calculateur personnalisé (Tableau)"])
 
-        profil_24h_custom = np.zeros(24)
+    # --- INITIALISATION DES VARIABLES ---
+    profil_24h_custom = np.zeros(24)
 
-        try:
-            if mode_conso == "Profils types (Fichier CSV)":
-                donnees_conso = pd.read_csv('consommation.csv', sep=";", decimal=",")
-                choix_profils = [
-                    col for col in donnees_conso.columns
-                    if col.lower() != "date" and "unnamed" not in col.lower()
-                ]
+    # --- CHARGEMENT ET CALCUL DE LA CONSO ---
+    try:
+        if mode_conso == "Profils types (Fichier CSV)":
+            donnees_conso = pd.read_csv('consommation.csv', sep=";", decimal=",")
+            choix_profils = [col for col in donnees_conso.columns if col.lower() != "date" and "unnamed" not in col.lower()]
+            
+            st.success("Fichier de profils détecté !")
+            profil_choisi = st.selectbox("Choisissez le profil à simuler :", choix_profils)
+            
+            conso_col = pd.to_numeric(donnees_conso[profil_choisi], errors='coerce').fillna(0)
+            dates_apercu = pd.date_range(start='2024-01-01', periods=len(donnees_conso), freq='h')
+            
+            y_jour = conso_col.groupby(dates_apercu.hour).mean()
+            y_mois = conso_col.groupby(dates_apercu.month).sum() / 1000
+            total_kwh = conso_col.sum() / 1000
 
-                st.success("Fichier de profils détecté !")
-                profil_choisi = st.selectbox("Choisissez le profil à simuler :", choix_profils)
+        else:
+            # --- MODE PERSONNALISÉ ---
+            st.info("💡 Ajoutez vos appareils. Horaires : '8-10' ou '12-13;19-21'")
+            default_devices = [
+                {"Appareil": "Talon (Veilles, Box, Frigo)", "Puissance (W)": 150, "Horaires": "0-24", "Actif": True},
+                {"Appareil": "Éclairage & Prises", "Puissance (W)": 300, "Horaires": "7-9;18-23", "Actif": True},
+                {"Appareil": "Lave-Linge", "Puissance (W)": 2000, "Horaires": "14-16", "Actif": True},
+                {"Appareil": "Plaques Cuisson", "Puissance (W)": 1500, "Horaires": "12-13;19-20", "Actif": True},
+            ]
+            df_custom = st.data_editor(pd.DataFrame(default_devices), num_rows="dynamic", use_container_width=True)
+            
+            def parse_h(h_str):
+                p = np.zeros(24)
+                try:
+                    for b in str(h_str).split(';'):
+                        d, f = map(int, b.split('-'))
+                        p[d:f] = 1
+                except: pass
+                return p
 
-                conso_col = pd.to_numeric(donnees_conso[profil_choisi], errors='coerce').fillna(0)
-                dates_apercu = pd.date_range(start='2025-01-01', periods=len(donnees_conso), freq='h')
+            for _, row in df_custom.iterrows():
+                if row["Actif"]:
+                    profil_24h_custom += parse_h(row["Horaires"]) * row["Puissance (W)"]
+            
+            y_jour = pd.Series(profil_24h_custom)
+            jours_mois = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            y_mois = pd.Series([(y_jour.sum() * j / 1000) for j in jours_mois], index=range(1, 13))
+            total_kwh = y_mois.sum()
+            profil_choisi = "Sur Mesure"
 
-                y_jour = conso_col.groupby(dates_apercu.hour).mean()
-                y_mois = conso_col.groupby(dates_apercu.month).sum() / 1000
-                total_kwh = conso_col.sum() / 1000
+        # --- AFFICHAGE COMMUN DES GRAPHES ---
+        st.markdown("---")
+        st.subheader(f"Aperçu : {profil_choisi} (Total : {total_kwh:,.0f} kWh)".replace(',', ' '))
+        
+        # On ajoute les metrics pour le mode personnalisé
+        if mode_conso == "Calculateur personnalisé (Tableau)":
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Annuel", f"{total_kwh:,.0f} kWh".replace(",", " "))
+            c2.metric("Puissance Max", f"{profil_24h_custom.max():,.0f} W")
+            c3.metric("Conso / Jour", f"{(profil_24h_custom.sum()/1000):.1f} kWh")
 
-            else:
-                st.info("💡 Ajoutez vos appareils. Horaires : '8-10' ou '12-13;19-21'")
-                default_devices = [
-                    {"Appareil": "Talon (Veilles, Box, Frigo)", "Puissance (W)": 150, "Horaires": "0-24", "Actif": True},
-                    {"Appareil": "Éclairage & Prises", "Puissance (W)": 300, "Horaires": "7-9;18-23", "Actif": True},
-                    {"Appareil": "Lave-Linge", "Puissance (W)": 2000, "Horaires": "14-16", "Actif": True},
-                    {"Appareil": "Plaques Cuisson", "Puissance (W)": 1500, "Horaires": "12-13;19-20", "Actif": True},
-                ]
+        fig_apercu, (ax_jour, ax_mois) = plt.subplots(1, 2, figsize=(14, 4))
+        ax_jour.plot(y_jour.index, y_jour.values, color='#1565C0', linewidth=2.5)
+        ax_jour.fill_between(y_jour.index, y_jour.values, color='#1565C0', alpha=0.2)
+        ax_jour.set_title("Modèle sur un jour type")
+        ax_jour.set_xticks(range(0, 24, 2))
+        ax_jour.grid(True, linestyle='--', alpha=0.6)
+        
+        mois_noms = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+        ax_mois.bar(mois_noms, y_mois.values, color='#FF9800', edgecolor='black', alpha=0.8)
+        ax_mois.set_title("Consommation Mensuelle Totale")
+        ax_mois.grid(axis='y', linestyle='--', alpha=0.6)
+        
+        plt.tight_layout()
+        st.pyplot(fig_apercu)
 
-                df_custom = st.data_editor(
-                    pd.DataFrame(default_devices),
-                    num_rows="dynamic",
-                    use_container_width=True
-                )
+    except Exception as e:
+        st.error(f"Erreur : {e}")
 
-                def parse_h(h_str):
-                    p = np.zeros(24)
-                    try:
-                        for b in str(h_str).split(';'):
-                            d, f = map(int, b.split('-'))
-                            p[d:f] = 1
-                    except:
-                        pass
-                    return p
-
-                for _, row in df_custom.iterrows():
-                    if row["Actif"]:
-                        profil_24h_custom += parse_h(row["Horaires"]) * row["Puissance (W)"]
-
-                y_jour = pd.Series(profil_24h_custom)
-                jours_mois = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-                y_mois = pd.Series([(y_jour.sum() * j / 1000) for j in jours_mois], index=range(1, 13))
-                total_kwh = y_mois.sum()
-                profil_choisi = "Sur Mesure"
-
-            st.markdown("---")
-            st.subheader(f"Aperçu : {profil_choisi} (Total : {total_kwh:,.0f} kWh)".replace(',', ' '))
-
-            if mode_conso == "Calculateur personnalisé (Tableau)":
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Total Annuel", f"{total_kwh:,.0f} kWh".replace(",", " "))
-                c2.metric("Puissance Max", f"{profil_24h_custom.max():,.0f} W")
-                c3.metric("Conso / Jour", f"{(profil_24h_custom.sum()/1000):.1f} kWh")
-
-            fig_apercu, (ax_jour, ax_mois) = plt.subplots(1, 2, figsize=(14, 4))
-            ax_jour.plot(y_jour.index, y_jour.values, color='#1565C0', linewidth=2.5)
-            ax_jour.fill_between(y_jour.index, y_jour.values, color='#1565C0', alpha=0.2)
-            ax_jour.set_title("Modèle sur un jour type")
-            ax_jour.set_xticks(range(0, 24, 2))
-            ax_jour.grid(True, linestyle='--', alpha=0.6)
-
-            mois_noms = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
-            ax_mois.bar(mois_noms, y_mois.values, color='#FF9800', edgecolor='black', alpha=0.8)
-            ax_mois.set_title("Consommation Mensuelle Totale")
-            ax_mois.grid(axis='y', linestyle='--', alpha=0.6)
-
-            plt.tight_layout()
-            st.pyplot(fig_apercu)
-
-        except Exception as e:
-            st.error(f"Erreur : {e}")
-
-
-if mode_prod in ["CSV SolarEdge", "Fichier simple Excel"] and fichier_prod is None:
-    if mode_prod == "CSV SolarEdge":
-        st.info("Veuillez importer le fichier CSV SolarEdge pour voir le reste de la simulation.")
-    else:
-        st.info("Veuillez importer le fichier Excel de production pour voir le reste de la simulation.")
+# --- BARRIÈRE DE SÉCURITÉ ---
+if fichier_prod is None:
+    st.info("Veuillez importer le fichier de production SolarEdge pour voir le reste de la simulation.")
     st.stop()
-
-
-
-
-# =========================================================
-# PARAMÈTRES SIDEBAR
-# =========================================================
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Évolution de la production PV")
-
-augmentation_prod_pct = st.sidebar.number_input(
-    "Augmentation de la production (%)",
-    min_value=-10.0,
-    value=0.0,
-    step=1.0
-)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Stockage (Batterie)")
-
-try:
-    df_batteries = pd.read_excel('batteries.xlsx')
-    df_batteries = df_batteries.dropna(subset=['Energie util', 'P charge / décharge'])
-except Exception:
-    st.sidebar.error("Fichier batteries.xlsx introuvable. Placez-le dans le dossier.")
-    df_batteries = pd.DataFrame()
-
-activer_batterie = st.sidebar.checkbox("Activer la simulation de batterie", value=False)
-
-capa_wh = 0.0
-puiss_w = 0.0
-
-if activer_batterie and not df_batteries.empty:
-    liste_batteries = df_batteries['Référence'].tolist()
-    choix_batterie = st.sidebar.selectbox("Choisissez un modèle :", liste_batteries)
-
-    infos_batterie = df_batteries[df_batteries['Référence'] == choix_batterie].iloc[0]
-
-    capa_kwh = float(str(infos_batterie['Energie util']).replace(',', '.'))
-    puiss_kw = float(str(infos_batterie['P charge / décharge']).replace(',', '.'))
-
-    st.sidebar.info(f"Capacité : {capa_kwh:.2f} kWh\nPuissance Max : {puiss_kw:.2f} kW")
-
-    capa_wh = capa_kwh * 1000
-    puiss_w = puiss_kw * 1000
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Borne de recharge")
-
-borne_active = st.sidebar.checkbox("Ajouter une borne de recharge", value=False)
-
-puissance_borne_kw = 0.0
-horaires_borne = "18-20"
-jours_charge = "Tous les jours"
-
-if borne_active:
-    puissance_borne_kw = st.sidebar.selectbox(
-        "Puissance de la borne (kW)",
-        [3, 7, 11.0, 22.0],
-        index=2
-    )
-
-    horaires_borne = st.sidebar.text_input(
-        "Plage horaire de charge",
-        value="18-20"
-    )
-
-    jours_charge = st.sidebar.selectbox(
-        "Jours de charge",
-        ["Tous les jours", "Lundi à vendredi", "Week-end uniquement"]
-    )
-
-
-
-
-
-
-
 
 
 # =========================================================
 # 1. IMPORT DE LA PRODUCTION ET CRÉATION DU TABLEAU PRINCIPAL
 # =========================================================
 
-if mode_prod in ["CSV SolarEdge", "Fichier simple Excel"]:
-    fichier_prod.seek(0)
+# On remet le curseur du fichier au début avant lecture
+fichier_prod.seek(0)
 
 # ---------------------------------------------------------
 # 1.1 Lecture du fichier de production selon le format choisi
 # ---------------------------------------------------------
 if mode_prod == "CSV SolarEdge":
+    # Lecture du CSV SolarEdge
     donnees_prod = pd.read_csv(fichier_prod, sep=",", skiprows=[1], index_col=False)
-
+    # Nettoyage des lignes utiles et reconstruction de la date
     donnees_prod = donnees_prod[donnees_prod['Date&Time'].astype(str).str.contains('-', na=False)]
     donnees_prod['Date&Time'] = donnees_prod['Date&Time'].astype(str) + " 2024"
     donnees_prod['Date&Time'] = pd.to_datetime(
@@ -744,16 +476,17 @@ if mode_prod == "CSV SolarEdge":
         format='%d-%b %H:%M:%S %Y',
         errors='coerce'
     )
-
+    # Construction du tableau principal avec les colonnes utiles
     mon_tableau = donnees_prod[['Date&Time', 'Inverter Output']].copy()
     mon_tableau['Inverter Output'] = pd.to_numeric(
         mon_tableau['Inverter Output'],
         errors='coerce'
     ).fillna(0)
 
-elif mode_prod == "Fichier simple Excel":
+else:
+    # Lecture du fichier Excel simple (2 colonnes : date + production)
     donnees_prod = pd.read_excel(fichier_prod, header=None)
-
+    # Renommage des colonnes et conversion des types
     donnees_prod = donnees_prod.iloc[:, :2].copy()
     donnees_prod.columns = ['Date&Time', 'Inverter Output']
     donnees_prod['Date&Time'] = pd.to_datetime(donnees_prod['Date&Time'], errors='coerce')
@@ -761,29 +494,26 @@ elif mode_prod == "Fichier simple Excel":
         donnees_prod['Inverter Output'],
         errors='coerce'
     ).fillna(0)
-
+    # Suppression des lignes invalides
     donnees_prod = donnees_prod.dropna(subset=['Date&Time']).copy()
+    # Tableau principal
     mon_tableau = donnees_prod.copy()
-
-else:
-    coeffs_mensuels = pd.to_numeric(
-        df_repartition["Coefficient"], errors="coerce"
-    ).fillna(0).tolist()
-
-    mon_tableau = generer_production_theorique_horaire(
-        puissance_crete=puissance_crete,
-        prod_specifique=prod_specifique,
-        coeffs_mensuels=coeffs_mensuels
-    )
-
 
 # =========================================================
 # 2. AJUSTEMENT ÉVENTUEL DE LA PRODUCTION PV
 # =========================================================
 
+# Paramètre utilisateur pour appliquer une hausse ou une baisse
+augmentation_prod_pct = st.sidebar.number_input(
+    "Augmentation de la production (%)",
+    min_value=-10.0,
+    value=0.0,
+    step=1.0
+)
+
+# Application du facteur multiplicatif sur la production
 facteur_augmentation_prod = 1 + augmentation_prod_pct / 100
 mon_tableau['Inverter Output'] = mon_tableau['Inverter Output'] * facteur_augmentation_prod
-
 
 # =========================================================
 # 3. AJOUT DU PROFIL DE CONSOMMATION
@@ -792,36 +522,18 @@ mon_tableau['Inverter Output'] = mon_tableau['Inverter Output'] * facteur_augmen
 # Deux cas possibles :
 # - consommation calculée depuis le tableau personnalisé
 # - consommation issue d'un profil type chargé depuis fichier
-
 if mode_conso == "Calculateur personnalisé (Tableau)":
     conso_base = np.tile(profil_24h_custom, len(mon_tableau) // 24 + 1)[:len(mon_tableau)]
-    mon_tableau["Consumption_base"] = conso_base
+    mon_tableau['Consumption'] = conso_base
 else:
     if donnees_conso is not None and profil_choisi is not None:
         valeurs_conso = pd.to_numeric(
             donnees_conso[profil_choisi],
             errors='coerce'
         ).fillna(0).values
-
-        mon_tableau["Consumption_base"] = valeurs_conso[:len(mon_tableau)]
+        mon_tableau['Consumption'] = valeurs_conso[:len(mon_tableau)]
     else:
-        mon_tableau["Consumption_base"] = 0.0
-
-# Ajout de la borne
-if borne_active:
-    mon_tableau["Conso_Borne"] = generer_profil_borne(
-        mon_tableau["Date&Time"],
-        puissance_borne_kw=puissance_borne_kw,
-        horaires_borne=horaires_borne,
-        jours_charge=jours_charge
-    )
-else:
-    mon_tableau["Conso_Borne"] = 0.0
-
-# Consommation finale
-mon_tableau["Consumption"] = mon_tableau["Consumption_base"] + mon_tableau["Conso_Borne"]
-
-
+        mon_tableau['Consumption'] = 0.0
 
 # =========================================================
 # 4. CALCULS ÉNERGÉTIQUES DE BASE (SANS BATTERIE)
@@ -832,18 +544,79 @@ mon_tableau['Autoconsommation'] = np.minimum(mon_tableau['Inverter Output'],mon_
 mon_tableau['Import_Reseau'] = np.maximum(0,mon_tableau['Consumption'] - mon_tableau['Inverter Output'])
 mon_tableau['Export_Reseau'] = np.maximum(0,mon_tableau['Inverter Output'] - mon_tableau['Consumption'])
 
+# =========================================================
+# 5. PARAMÉTRAGE DE LA BATTERIE DANS LA SIDEBAR
+# =========================================================
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("Stockage (Batterie)")
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("Évolution de la production PV")
 
+# ---------------------------------------------------------
+# 5.1 Chargement de la base de données batteries
+# ---------------------------------------------------------
+try:
+    df_batteries = pd.read_excel('batteries.xlsx')
+    # Suppression des lignes incomplètes
+    df_batteries = df_batteries.dropna(subset=['Energie util', 'P charge / décharge'])
+except Exception as e:
+    st.sidebar.error("Fichier batteries.xlsx introuvable. Placez-le dans le dossier.")
+    df_batteries = pd.DataFrame()
+# Activation ou non de la batterie
+activer_batterie = st.sidebar.checkbox("Activer la simulation de batterie", value=False)
+# Valeurs par défaut
+capa_wh = 0.0
+puiss_w = 0.0
 
+# ---------------------------------------------------------
+# 5.2 Sélection du modèle de batterie
+# ---------------------------------------------------------
+if activer_batterie and not df_batteries.empty:
+    liste_batteries = df_batteries['Référence'].tolist()
+    choix_batterie = st.sidebar.selectbox("Choisissez un modèle :", liste_batteries)
+    infos_batterie = df_batteries[df_batteries['Référence'] == choix_batterie].iloc[0]
+    # Lecture des caractéristiques
+    capa_kwh = float(str(infos_batterie['Energie util']).replace(',', '.'))
+    puiss_kw = float(str(infos_batterie['P charge / décharge']).replace(',', '.'))
+    # Affichage dans la sidebar
+    st.sidebar.info(f"Capacité : {capa_kwh:.2f} kWh\n Puissance Max : {puiss_kw:.2f} kW")
+    # Conversion en Wh / W pour l'algorithme
+    capa_wh = capa_kwh * 1000
+    puiss_w = puiss_kw * 1000
 
+# =========================================================
+# 6. FONCTION DE SIMULATION DE LA BATTERIE
+# =========================================================
 
-
-
-
-
-
-
+def simuler_batterie(production_wh, consommation_wh, capacite_max_wh, puissance_max_w):
+    niveau_actuel = 0.0
+    niveaux, charges, decharges, exports, achats = [], [], [], [], []
+    for prod, conso in zip(production_wh, consommation_wh):
+        # Part consommée directement depuis le PV
+        autoconso_directe = min(prod, conso)
+        # Calcul du surplus ou du manque
+        surplus = prod - autoconso_directe
+        manque = conso - autoconso_directe
+        charge, decharge, export, achat = 0.0, 0.0, 0.0, 0.0
+        # Cas 1 : surplus PV -> on charge la batterie puis on exporte le reste
+        if surplus > 0:
+            charge = min(surplus, puissance_max_w, capacite_max_wh - niveau_actuel)
+            niveau_actuel += charge
+            export = surplus - charge
+        # Cas 2 : production insuffisante -> on décharge la batterie puis on importe le reste
+        elif manque > 0:
+            decharge = min(manque, puissance_max_w, niveau_actuel)
+            niveau_actuel -= decharge
+            achat = manque - decharge
+        # Sauvegarde des résultats à chaque pas de temps
+        niveaux.append(niveau_actuel)
+        charges.append(charge)
+        decharges.append(decharge)
+        exports.append(export)
+        achats.append(achat)
+    return niveaux, charges, decharges, exports, achats
 
 # =========================================================
 # 7. APPLICATION DE LA LOGIQUE BATTERIE AU TABLEAU PRINCIPAL
@@ -895,12 +668,12 @@ with tab_saisons:
     afficher_export = col5.checkbox("Exporté (Réseau)", value=False)
 
     fig1, axes = plt.subplots(2, 2, figsize=(14, 8))
-
+    
     dates_a_tracer = [
-        (12, 21, "21 Décembre (Hiver)", axes[0,0]), 
+        (12, 20, "20 Décembre (Hiver)", axes[0,0]), 
         (3, 21, "21 Mars (Printemps)", axes[0,1]), 
-        (6, 21, "21 Juin (Été)", axes[1,0]), 
-        (9, 21, "21 Septembre (Automne)", axes[1,1])
+        (6, 6, "6 Juin (Été)", axes[1,0]), 
+        (9, 15, "15 Septembre (Automne)", axes[1,1])
     ]
 
     handles_globaux = []
@@ -966,8 +739,8 @@ with tab_saisons:
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
         ax.tick_params(axis='x', rotation=45)
         
-    if not handles_globaux:
-        handles_globaux, labels_globaux = ax.get_legend_handles_labels()
+        if mois == 12 and jour == 21:
+            handles_globaux, labels_globaux = ax.get_legend_handles_labels()
 
     plt.tight_layout()
     
@@ -1962,99 +1735,10 @@ with tab_finance:
 
 
 
-    st.markdown("---")
-    st.subheader("Les frais d'utilisation du réseau")
-
-    def calcul_frais_reseau(mon_tableau, puissance_reference_kw):
-        tarifs_reseau = {
-            3:   {"fixe": 7.42},
-            7:   {"fixe": 12.84},
-            12:  {"fixe": 19.61},
-            17:  {"fixe": 26.39},
-            27:  {"fixe": 39.94},
-            43:  {"fixe": 61.62},
-            70:  {"fixe": 98.20},
-            100: {"fixe": 138.85},
-            150: {"fixe": 206.60},
-            200: {"fixe": 274.35},
-        }
-
-        TARIF_VOLUMETRIQUE = 0.051
-        TARIF_DEP_JOUR = 0.0765
-        TARIF_DEP_NUIT = 0.0076
-
-        df = mon_tableau.copy()
-
-        # Import réseau en kWh
-        df["Import_kWh"] = df["Import_Reseau"] / 1000
-
-        # Heure
-        df["Heure"] = pd.to_datetime(df["Date&Time"]).dt.hour
-
-        # Dépassement en kWh sur chaque heure
-        df["Depassement_kWh"] = (df["Import_kWh"] - puissance_reference_kw).clip(lower=0)
-
-        # Jour / nuit
-        df["Tarif_depassement"] = np.where(
-            (df["Heure"] >= 6) & (df["Heure"] < 22),
-            TARIF_DEP_JOUR,
-            TARIF_DEP_NUIT
-        )
-
-        # Coût du dépassement
-        df["Cout_depassement"] = df["Depassement_kWh"] * df["Tarif_depassement"]
-
-        # Totaux
-        import_total_kwh = df["Import_kWh"].sum()
-        depassement_total_kwh = df["Depassement_kWh"].sum()
-
-        redevance_fixe_annuelle = tarifs_reseau[puissance_reference_kw]["fixe"] * 12
-        redevance_volumetrique = import_total_kwh * TARIF_VOLUMETRIQUE
-        cout_depassement_total = df["Cout_depassement"].sum()
-
-        cout_total_reseau = (
-            redevance_fixe_annuelle
-            + redevance_volumetrique
-            + cout_depassement_total
-        )
-
-        return {
-            "redevance_fixe_annuelle": redevance_fixe_annuelle,
-            "redevance_volumetrique": redevance_volumetrique,
-            "depassement_total_kwh": depassement_total_kwh,
-            "cout_depassement_total": cout_depassement_total,
-            "cout_total_reseau": cout_total_reseau,
-            "df_detail": df
-        }
 
 
-    puissance_reference = st.selectbox(
-        "Puissance de référence",
-        [3, 7, 12, 17, 27, 43, 70, 100, 150, 200],
-        index=2
-    )
 
-    resultats_reseau = calcul_frais_reseau(mon_tableau, puissance_reference)
 
-    st.metric(
-        "Redevance fixe annuelle",
-        f"{resultats_reseau['redevance_fixe_annuelle']:.2f} €"
-    )
-
-    st.metric(
-        "Redevance volumétrique",
-        f"{resultats_reseau['redevance_volumetrique']:.2f} €"
-    )
-
-    st.metric(
-        "Coût du dépassement",
-        f"{resultats_reseau['cout_depassement_total']:.2f} €"
-    )
-
-    st.metric(
-        "Total frais réseau",
-        f"{resultats_reseau['cout_total_reseau']:.2f} €"
-    )
 
 
 
